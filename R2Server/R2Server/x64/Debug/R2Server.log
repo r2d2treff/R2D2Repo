@@ -1,0 +1,3 @@
+﻿  quelle.cpp
+E:\Dokumente\GitHub\R2Server\R2Server\quelle.cpp(85): warning C4715: "handleUDP": Nicht alle Codepfade geben einen Wert zurück.
+  R2Server.vcxproj -> E:\Dokumente\GitHub\R2Server\x64\Debug\R2Server.exe
