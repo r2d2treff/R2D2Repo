@@ -10,16 +10,19 @@
 #include "src/httpLib.h"
 
 struct Connection {
-    enum class Type {
-        LeftRad,
-        RightRad,
-        FrontRad
+    enum class Type : uint16_t {
+        LeftRad = 1,
+        RightRad = 2,
+        FrontRad = 3
     };
     std::string ip;
     Type type;
+    uint16_t refreshTime;
+    double empfangszeit;
     httplib::Client *cli;
 };
 
+time_t start;
 std::vector<Connection> connections;
 
 bool handleUDPRunning;
@@ -29,27 +32,16 @@ int handleUDP() {
     sockaddr_in server, client;
 
     WSADATA wsa;
-    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
-    {
-        return 1;
-    }
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 1;
 
     SOCKET server_socket;
-    if ((server_socket = socket(AF_INET, SOCK_DGRAM, 0)) == INVALID_SOCKET)
-    {
-        return 2;
-    }
+    if ((server_socket = socket(AF_INET, SOCK_DGRAM, 0)) == INVALID_SOCKET) return 2;
 
-    // prepare the sockaddr_in structure
     server.sin_family = AF_INET;
     server.sin_addr.s_addr = INADDR_ANY;
     server.sin_port = htons(PORT);
 
-    // bind
-    if (bind(server_socket, (sockaddr*)&server, sizeof(server)) == SOCKET_ERROR)
-    {
-        return 3;
-    }
+    if (bind(server_socket, (sockaddr*)&server, sizeof(server)) == SOCKET_ERROR) return 3;
 
     while (handleUDPRunning)
     {
@@ -57,26 +49,30 @@ int handleUDP() {
 
         int message_len;
         int slen = sizeof(sockaddr_in);
-        if (message_len = recvfrom(server_socket, message, BUFLEN, 0, (sockaddr*)&client, &slen) == SOCKET_ERROR)
-        {
-            return 4;
+        if (message_len = recvfrom(server_socket, message, BUFLEN, 0, (sockaddr*)&client, &slen) == SOCKET_ERROR) return 4;
+
+        std::string msg = std::string(message);
+        if ((int)msg.find(',') == -1) continue;
+
+        int found = -1;
+        for (int i = 0; i < connections.size() && found == -1; i++)
+            if (connections[i].ip == std::string(inet_ntoa(client.sin_addr)))
+                found = i;
+        if (found == -1) {
+            found = connections.size();
+            connections.push_back({});
+            connections[found].ip = std::string(inet_ntoa(client.sin_addr));
+            connections[found].cli = new httplib::Client(connections[found].ip.c_str());
         }
 
-        bool found = false;
-        for (int i = 0; i < connections.size() && !found; i++)
-            if (connections[i].ip == std::string(inet_ntoa(client.sin_addr)))
-                found = true;
-        if (found)
-            continue;
-        connections.push_back({});
-        connections[connections.size() - 1].ip = std::string(inet_ntoa(client.sin_addr));
-        connections[connections.size() - 1].cli = new httplib::Client(connections[connections.size() - 1].ip.c_str());
-        if (std::string(message) == "Hi I Am Left")
-            connections[connections.size() - 1].type = Connection::Type::LeftRad;
-        if (std::string(message) == "Hi I Am Right")
-            connections[connections.size() - 1].type = Connection::Type::RightRad;
-        if (std::string(message) == "Hi I Am Front")
-            connections[connections.size() - 1].type = Connection::Type::FrontRad;
+        std::string msg0 = msg.substr(0, msg.find_first_of(','));
+        std::string msg1 = msg.substr(msg.find_first_of(',') + 1);
+        uint16_t typeId = std::stoi(msg0.substr(msg0.find_first_of('=') + 1));
+        uint16_t refreshTime = std::stoi(msg1.substr(msg1.find_first_of('=') + 1));
+
+        connections[found].type = (Connection::Type)typeId;
+        connections[found].refreshTime = refreshTime;
+        connections[found].empfangszeit = difftime(time(0), start);
     }
 
     closesocket(server_socket);
@@ -90,10 +86,7 @@ void endHandleUDP() {
 
 int main()
 {
-    // start Thread for UDP listen;
-        // make connection for each klient
-        // ip + type
-
+    start = time(0);
     udpHandler = new std::thread(handleUDP);
 
     bool stop = false;
@@ -110,12 +103,12 @@ int main()
             break;
         case 1:
             for (int i = 0; i < connections.size(); i++) {
-                auto res = connections[i].cli->Get("/Forward?distance=5000&speed=125");
+                auto res = connections[i].cli->Get("/Forward?distance=1000&speed=125");
             }
             break;
         case 2:
             for (int i = 0; i < connections.size(); i++) {
-                auto res = connections[i].cli->Get("/Backward?distance=5000&speed=125");
+                auto res = connections[i].cli->Get("/Backward?distance=1000&speed=125");
             }
             break;
         case 3:
