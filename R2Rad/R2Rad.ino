@@ -3,7 +3,6 @@
 #include <WiFiUdp.h>
 
 #include "RadMotor.h"
-#include "SchrittMotor.h"
 
 #ifndef STASSID
 #define STASSID "R2D2Net"
@@ -18,17 +17,8 @@
 
 ESP8266WebServer server(80);
 
-RadMotor rad(4, 5);
-#ifdef FRONTMOTOR
-  Schrittmotor lenker(14, 12, 13);
-  #define T0 2
-  #define T1 16
-  #define T2 A0
-#endif
+RadMotor rad(4, 5, 14);
 
-WiFiUDP Udp;
-
-uint32_t stopTime = 0;
 
 void setup(void) {
   Serial.begin(115200);
@@ -50,26 +40,11 @@ void setup(void) {
   Serial.println(WiFi.localIP());
 
   server.on("/", [](){
-    #ifdef LEFTMOTOR
-      server.send(200, "text/plain", "Forward,Backward,Stop,State");
-    #endif
-    #ifdef RIGHTMOTOR
-      server.send(200, "text/plain", "Forward,Backward,Stop,State");
-    #endif
-    #ifdef FRONTMOTOR
-      server.send(200, "text/plain", "Forward,Backward,SetAngle,Stop,State");
-    #endif
+    server.send(200, "text/plain", "Forward,Backward,Stop,State");
   });
+
   server.onNotFound([](){
-    #ifdef LEFTMOTOR
-      server.send(404, "text/plain", "Forward,Backward,Stop,State");
-    #endif
-    #ifdef RIGHTMOTOR
-      server.send(404, "text/plain", "Forward,Backward,Stop,State");
-    #endif
-    #ifdef FRONTMOTOR
-      server.send(404, "text/plain", "Forward,Backward,SetAngle,Stop,State");
-    #endif
+    server.send(404, "text/plain", "Forward,Backward,Stop,State");
   });
 
   server.on("/Forward", []() {
@@ -78,7 +53,7 @@ void setup(void) {
     bool hasSpeed = false;
     uint8_t speed = 0;
     for(int i = 0; i < server.args(); i++){
-      if(String("distance") == server.argName(i)){
+      if(String("steps") == server.argName(i)){
         hasDrivingMillis = true;
         drivingMillis = server.arg(i).toInt();
       }
@@ -89,27 +64,27 @@ void setup(void) {
     }
     if(hasDrivingMillis && hasSpeed){
       #ifdef LEFTMOTOR
-        rad.Backward(speed);
+        rad.Backward(speed, drivingMillis);
       #endif
       #ifdef RIGHTMOTOR
-        rad.Forward(speed);
+        rad.Forward(speed, drivingMillis);
       #endif
       #ifdef FRONTMOTOR
-        rad.Backward(speed);
+        rad.Backward(speed, drivingMillis);
       #endif
-      stopTime = millis() + drivingMillis;
       server.send(200, "text/plain", "doing");
     }
     else
       server.send(404, "text/plain", "wrong Arguments");
   });
+
   server.on("/Backward", []() {
     bool hasDrivingMillis = false;
     uint32_t drivingMillis = 0;
     bool hasSpeed = false;
     uint8_t speed = 0;
     for(int i = 0; i < server.args(); i++){
-      if(String("distance") == server.argName(i)){
+      if(String("steps") == server.argName(i)){
         hasDrivingMillis = true;
         drivingMillis = server.arg(i).toInt();
       }
@@ -121,70 +96,30 @@ void setup(void) {
     if(hasDrivingMillis && hasSpeed){
       
       #ifdef LEFTMOTOR
-        rad.Forward(speed);
+        rad.Forward(speed, drivingMillis);
       #endif
       #ifdef RIGHTMOTOR
-        rad.Backward(speed);
+        rad.Backward(speed, drivingMillis);
       #endif
       #ifdef FRONTMOTOR
-        rad.Forward(speed);
+        rad.Forward(speed, drivingMillis);
       #endif
-      stopTime = millis() + drivingMillis;
       server.send(200, "text/plain", "doing");
     }
     else
       server.send(404, "text/plain", "wrong Arguments");
   });
-  
-  #ifdef FRONTMOTOR
-    server.on("/SetAngle", []() {
-      bool hasAngle = false;
-      uint32_t angle = 0;
-      for(int i = 0; i < server.args(); i++){
-        if(String("angle") == server.argName(i)){
-          hasAngle = true;
-          angle = server.arg(i).toInt();
-        }
-      }
-      if(hasAngle){
-        server.send(200, "text/plain", "doing");
-      }
-      else
-        server.send(404, "text/plain", "wrong Arguments");
-    });
-  #endif
-  
+
   server.on("/Stop", []() {
     rad.Stop();
     server.send(200, "text/plain", "done");
   });
 
-  #ifdef FRONTMOTOR
-    pinMode(T0, INPUT);
-    pinMode(T1, INPUT);
-    pinMode(T2, INPUT);
-  #endif
-
   server.on("/State", []() {
-    #ifdef LEFTMOTOR
-      if(stopTime < millis())
-        server.send(200, "text/plain", "stopped");
-      else
-        server.send(200, "text/plain", "not stopped");
-    #endif
-    #ifdef RIGHTMOTOR
-      if(stopTime < millis())
-        server.send(200, "text/plain", "stopped");
-      else
-        server.send(200, "text/plain", "not stopped");
-    #endif
-    #ifdef FRONTMOTOR
-      String msg = (stopTime < millis() ? "stopped:" : "not stopped:");
-      msg += (digitalRead(T0) ? "1," : "0,");
-      msg += (digitalRead(T1) ? "1," : "0,");
-      msg += (analogRead(T2) > 512 ? "1" : "0");
-      server.send(200, "text/plain", msg);
-    #endif
+    if(rad.isDriving())
+      server.send(200, "text/plain", "not stopped");
+    else
+      server.send(200, "text/plain", "stopped");
   });
 
   server.begin();
@@ -195,6 +130,7 @@ uint32_t naechsteUDPSendeZeit = 0;
 
 void loop(void) {
   server.handleClient();
+  
   if(naechsteUDPSendeZeit < millis()){
     naechsteUDPSendeZeit = millis() + REFRESHRATE;
     Udp.beginPacket("255.255.255.255" ,90);
@@ -209,7 +145,6 @@ void loop(void) {
     #endif
     Udp.endPacket();
   }
-  if(stopTime < millis()){
-    rad.Stop();
-  }
+
+  rad.update();
 }
