@@ -11,19 +11,36 @@
 
 struct Connection {
     enum class Type : uint16_t {
-        LeftRad = 1,
-        RightRad = 2,
-        FrontRad = 3
+        linkesRad = 1,
+        rechteRad = 2,
+        vorderRad = 3,
+        lenkRad = 4
     };
-    std::string ip;
-    Type type;
-    uint16_t refreshTime;
-    double empfangszeit;
-    httplib::Client *cli;
+    bool exists = false;
+    std::string ip = "";
+    uint16_t refreshTime = 0;
+    double empfangszeit = 0;
+    httplib::Client *cli = nullptr;
+
+    void Forward() {
+        cli->Get("/Forward?steps=500&speed=150");
+        std::cout << "go" << std::endl;
+
+    }
+    void Backward() {
+        cli->Get("/Forward?steps=500&speed=50");
+    }
+    void Stop() {
+        cli->Get("/Stop");
+    }
 };
 
+Connection linkesRad = { false, "", 0, 0, nullptr };
+Connection vorderRad = { false, "", 0, 0, nullptr };
+Connection rechtenRad = { false, "", 0, 0, nullptr };
+Connection lenkRad = { false, "", 0, 0, nullptr };
+
 time_t start;
-std::vector<Connection> connections;
 
 bool handleUDPRunning;
 std::thread* udpHandler;
@@ -43,8 +60,7 @@ int handleUDP() {
 
     if (bind(server_socket, (sockaddr*)&server, sizeof(server)) == SOCKET_ERROR) return 3;
 
-    while (handleUDPRunning)
-    {
+    while (handleUDPRunning) {
         char message[BUFLEN] = {};
 
         int message_len;
@@ -54,25 +70,57 @@ int handleUDP() {
         std::string msg = std::string(message);
         if ((int)msg.find(',') == -1) continue;
 
-        int found = -1;
-        for (int i = 0; i < connections.size() && found == -1; i++)
-            if (connections[i].ip == std::string(inet_ntoa(client.sin_addr)))
-                found = i;
-        if (found == -1) {
-            found = connections.size();
-            connections.push_back({});
-            connections[found].ip = std::string(inet_ntoa(client.sin_addr));
-            connections[found].cli = new httplib::Client(connections[found].ip.c_str());
-        }
-
         std::string msg0 = msg.substr(0, msg.find_first_of(','));
         std::string msg1 = msg.substr(msg.find_first_of(',') + 1);
         uint16_t typeId = std::stoi(msg0.substr(msg0.find_first_of('=') + 1));
         uint16_t refreshTime = std::stoi(msg1.substr(msg1.find_first_of('=') + 1));
 
-        connections[found].type = (Connection::Type)typeId;
-        connections[found].refreshTime = refreshTime;
-        connections[found].empfangszeit = difftime(time(0), start);
+        switch (typeId)
+        {
+        case (uint16_t)Connection::Type::linkesRad: {
+            if (linkesRad.cli == nullptr) {
+                linkesRad.ip = std::string(inet_ntoa(client.sin_addr));
+                linkesRad.cli = new httplib::Client(linkesRad.ip.c_str());
+                linkesRad.exists = true;
+            }
+            linkesRad.refreshTime = refreshTime;
+            linkesRad.empfangszeit = difftime(time(0), start);
+        }
+            break;
+        case (uint16_t)Connection::Type::rechteRad: {
+            if (rechtenRad.cli == nullptr) {
+                rechtenRad.ip = std::string(inet_ntoa(client.sin_addr));
+                rechtenRad.cli = new httplib::Client(rechtenRad.ip.c_str());
+                rechtenRad.exists = true;
+            }
+            rechtenRad.refreshTime = refreshTime;
+            rechtenRad.empfangszeit = difftime(time(0), start);
+        }
+            break;
+        case (uint16_t)Connection::Type::vorderRad: {
+            if (vorderRad.cli == nullptr) {
+                vorderRad.ip = std::string(inet_ntoa(client.sin_addr));
+                vorderRad.cli = new httplib::Client(vorderRad.ip.c_str());
+                vorderRad.exists = true;
+            }
+            vorderRad.refreshTime = refreshTime;
+            vorderRad.empfangszeit = difftime(time(0), start);
+        }
+            break;
+        case (uint16_t)Connection::Type::lenkRad: {
+            if (lenkRad.cli == nullptr) {
+                lenkRad.ip = std::string(inet_ntoa(client.sin_addr));
+                lenkRad.cli = new httplib::Client(lenkRad.ip.c_str());
+                lenkRad.exists = true;
+            }
+            lenkRad.refreshTime = refreshTime;
+            lenkRad.empfangszeit = difftime(time(0), start);
+        }
+            break;
+        default:
+            std::cout << "Hä " << typeId << std::endl;
+            break;
+        }
     }
 
     closesocket(server_socket);
@@ -84,44 +132,142 @@ void endHandleUDP() {
     udpHandler->join();
 }
 
+enum State {
+    F,
+    L,
+    R,
+    S
+};
+State state = State::S;
+bool move;
+
+httplib::Server serv;
+
 int main()
 {
     start = time(0);
-    udpHandler = new std::thread(handleUDP);
 
-    bool stop = false;
-    while (!stop) {
-        int temp;
-        std::cin >> temp;
-
-        switch (temp)
-        {
-        case 0:
-            for (int i = 0; i < connections.size(); i++) {
-                auto res = connections[i].cli->Get("/Stop");
-            }
-            break;
-        case 1:
-            for (int i = 0; i < connections.size(); i++) {
-                auto res = connections[i].cli->Get("/Forward?distance=1000&speed=125");
-            }
-            break;
-        case 2:
-            for (int i = 0; i < connections.size(); i++) {
-                auto res = connections[i].cli->Get("/Backward?distance=1000&speed=125");
-            }
-            break;
-        case 3:
-            stop = true;
-            break;
-        default:
-            break;
+    serv.Get("/", [](const httplib::Request& req, httplib::Response& res) {
+        std::ifstream inFile("Web/index.html");
+        std::string data;
+        char buf[1024];
+        while (!inFile.eof()) {
+            inFile.getline(buf, 1024);
+            data += buf;
+            data += '\n';
         }
+        res.set_content(data, "text/html");
+        });
+    serv.Get("/State", [](const httplib::Request& req, httplib::Response& res) {
+        if (vorderRad.cli == nullptr || lenkRad.cli == nullptr)
+            res.body = "Not Connected";
+        else
+            res.body = "Connected";
+        });
+    serv.Get("/Fornt", [](const httplib::Request& req, httplib::Response& res) {
+        state = State::F;
+        res.body = "F";
+        });
+    serv.Get("/Left", [](const httplib::Request& req, httplib::Response& res) {
+        state = State::L;
+        res.body = "L";
+        });
+    serv.Get("/Right", [](const httplib::Request& req, httplib::Response& res) {
+        state = State::R;
+        res.body = "R";
+        });
+    serv.Get("/Stop", [](const httplib::Request& req, httplib::Response& res) {
+        move = false;
+        res.body = "S";
+        });
+    serv.Get("/Move", [](const httplib::Request& req, httplib::Response& res) {
+        if (state != State::S) return;
+        res.body = "M";
+        move = true;
+        });
 
+    udpHandler = new std::thread(handleUDP);
+    std::thread webHandler = std::thread([]() {
+        char host[256];
+        char* IP;
+        struct hostent* host_entry;
+        int hostname;
+        hostname = gethostname(host, sizeof(host));
+        host_entry = gethostbyname(host);
+        IP = inet_ntoa(*((struct in_addr*)host_entry->h_addr_list[0]));
+        std::cout << IP << std::endl;
+        serv.listen(IP, 80);
+        });
+
+    bool notStopped = true;
+    while (notStopped) {
+        if (vorderRad.exists && lenkRad.exists) {
+
+            switch (state)
+            {
+            case F:
+            {
+                std::string temp = lenkRad.cli->Get("/State")->body;
+                if (temp.substr(0, 1) != "0") {
+                    vorderRad.Stop();
+                    //linkesRad.Stop();
+                    //rechtenRad.Stop();
+                    lenkRad.cli->Get("/Direction?state=0");
+                }
+                else {
+                    state = State::S;
+                }
+                break;
+            }
+            case L:
+            {
+                std::string temp = lenkRad.cli->Get("/State")->body;
+                if (temp.substr(0, 2) != "90") {
+                    vorderRad.Stop();
+                    //linkesRad.Stop();
+                    //rechtenRad.Stop();
+                    lenkRad.cli->Get("/Direction?state=90");
+                }
+                else {
+                    state = State::S;
+                }
+                break;
+            }
+            case R:
+            {
+                std::string temp = lenkRad.cli->Get("/State")->body;
+                if (temp.substr(0, 3) != "-90") {
+                    vorderRad.Stop();
+                    //linkesRad.Stop();
+                    //rechtenRad.Stop();
+                    lenkRad.cli->Get("/Direction?state=-90");
+                }
+                else {
+                    state = State::S;
+                }
+                break;
+            }
+            case S:
+            {
+                lenkRad.Stop();
+                break;
+            }
+            default:
+                notStopped = false;
+                break;
+            }
+
+            if (move) {
+                vorderRad.Forward();
+            }
+            else {
+                vorderRad.Stop();
+            }
+        }
     }
 
+    serv.stop();
+    webHandler.join();
     endHandleUDP();
-    for (int i = 0; i < connections.size(); i++) {
-        auto res = connections[i].cli->Get("/Stop");
-    }
+    return 0;
 }

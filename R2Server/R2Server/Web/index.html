@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <script>
+        function movement(direction){
+            fetch('http://192.168.1.105:80/' + direction).then((response) => response.json()).then((json) => console.log(json));
+        }
+    </script>
+</head>
+<body>
+    <input type="button" value="Fornt" onmouseleave="movement('Stop')" onmouseup="movement('Stop')" onmousedown="movement('Fornt')">
+    <input type="button" value="Right" onmousedown="movement('Right')">
+    <input type="button" value="Left" onmousedown="movement('Left')">
+    <input type="button" value="Move" onmouseleave="movement('Stop')" onmouseup="movement('Stop')" onmousedown="movement('Move')">
+</body>
+</html>

@@ -19,58 +19,89 @@ Schrittmotor sm(14, 4, 5);
 #define T1 12
 #define T2 13
 
-uint8_t sollState = 0;
-uint8_t currentState = 0;
-uint8_t readState(){
-  bool ct0 = digitalRead(T0) ? 0 : 2;
-  bool ct1 = digitalRead(T1) ? 0 : 1;
-  bool ct2 = digitalRead(T2) ? 0 : 4;
-  if(ct0 == 0 && ct1 == 0 && ct2 == 0)
-    currentState = 0;
-  else{
-    if(ct0)
-      currentState = currentState | 2;
-    if(ct1)
-      currentState = currentState | 1;
-    if(ct2)
-      currentState = currentState | 4;
-  }
-  return currentState;
+#define steppDadMaxCounter 155
+int8_t winkel = 91;
+uint16_t steppDadCounter = 0;
+int8_t sollWinkel = 0;
+int8_t winkelLookUp[7] = {
+  -90,
+  0,
+  -60,
+  90,
+  -30,
+  30,
+  60
+};
+enum class Sensorwert : uint8_t{
+  nichts = 0,   //000
+  rechts =  1,  //001
+  rechts1 = 3,  //011
+  rechts2 = 5,  //101
+  grade = 2,    //010
+  links2 = 6,   //110
+  links1 = 7,   //111
+  links = 4     //100
+};
+
+Sensorwert readState(){
+  bool ct0 = !digitalRead(T0) ? 0 : 4;
+  bool ct1 = !digitalRead(T1) ? 0 : 1;
+  bool ct2 = !digitalRead(T2) ? 0 : 2;
+  
+  return (Sensorwert)((!digitalRead(T1) ? 0 : 2) + (!digitalRead(T2) ? 0 : 4) + (!digitalRead(T0) ? 0 : 1) );
 }
 
-#define STEPTIME 5
+#define STEPTIME 2500
 uint32_t nextStepTime = 0;
 
-uint8_t drehrichtung = 0;
+
 void choseAktion(){
-  if(nextStepTime > millis())
+  if(nextStepTime > micros())
     return;
 
-  nextStepTime = millis() + STEPTIME;
+  nextStepTime = micros() + STEPTIME;
 
-  uint8_t currentState = readState();
-  
-  if(currentState != sollState){
-    if(currentState != 0)
-      drehrichtung = sollState > currentState ? 1 : 2;
-  }else {
-    drehrichtung = 0;
+  Sensorwert currentState = readState();
+
+  if(currentState != Sensorwert::nichts){
+    if(winkel != winkelLookUp[(uint8_t)currentState-1]){
+      Serial.print(winkel); Serial.print(";"); Serial.println(winkelLookUp[(uint8_t)currentState-1]);
+    }
+    winkel = winkelLookUp[(uint8_t)currentState-1];
   }
 
-  switch(drehrichtung){
-    case 0:
-      break;
-    case 1:
+  if(winkel == 91){
+    sm.Enable(false);
+    sm.Forward();
+  }else{
+    if(sollWinkel < winkel){
       sm.Forward();
-      break;
-    case 2:
+      steppDadCounter--;
+      if(steppDadCounter > steppDadMaxCounter){
+        winkel--;
+        steppDadCounter = steppDadMaxCounter;
+      }
+    }else if(sollWinkel > winkel){
       sm.Backward();
-      break;
+      steppDadCounter++;
+      if(steppDadCounter == steppDadMaxCounter){
+        winkel++;
+        steppDadCounter = 0;
+      }
+    }
   }
+
 }
 
 void setup() {
   Serial.begin(115200);
+
+  pinMode(T0, INPUT);
+  pinMode(T1, INPUT);
+  pinMode(T2, INPUT);
+
+  sm.Enable(true);
+
   WiFi.mode(WIFI_STA);
   WiFi.begin(STASSID, STAPSK);
 
@@ -96,58 +127,29 @@ void setup() {
   });
   server.on("/Direction", []() {
     bool hasState = false;
-    uint8_t state = 0;
+    int8_t state = 0;
     for(int i = 0; i < server.args(); i++){
       if(String("state") == server.argName(i)){
         hasState = true;
         state = server.arg(i).toInt();
       }
     }
-    if(hasState && state != 0){
-      sollState = state;
-      drehrichtung = 1;
+    if(hasState && state <=90 && state >= -90){
+      sollWinkel = state;
       server.send(200, "text/plain", "doing");
     }
     else
       server.send(404, "text/plain", "wrong Arguments");
   });
   server.on("/State", []() {
-    switch(readState()){
-      case 0:
-        server.send(200, "text/plain", "moving");
-        break;
-      case 1:
-        server.send(200, "text/plain", "1");
-        break;
-      case 2:
-        server.send(200, "text/plain", "2");
-        break;
-      case 3:
-        server.send(200, "text/plain", "3");
-        break;
-      case 4:
-        server.send(200, "text/plain", "4");
-        break;
-      case 5:
-        server.send(200, "text/plain", "5");
-        break;
-      case 6:
-        server.send(200, "text/plain", "6");
-        break;
-      case 7:
-        server.send(200, "text/plain", "7");
-        break;
-    }
+    String s = String(winkel);
+    s += ",";
+    s += winkel == sollWinkel ? 's' : 'm';
+    server.send(200, "text/plain", s.c_str());
   });
-
-  pinMode(T0, INPUT);
-  pinMode(T1, INPUT);
-  pinMode(T2, INPUT);
 
   server.begin();
   Serial.println("HTTP server started");
-  
-  sm.Enable(false);
 }
 
 void loop() {

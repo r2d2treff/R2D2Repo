@@ -24,4 +24,7 @@
       <Filter>Headerdateien</Filter>
     </ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="Web\index.html" />
+  </ItemGroup>
 </Project>

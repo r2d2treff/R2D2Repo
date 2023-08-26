@@ -12,6 +12,9 @@ class Schrittmotor{
           pinMode(dirPin,OUTPUT);
           pinMode(stepPin,OUTPUT);
           pinMode(enablePin,OUTPUT);
+
+          Enable(false);
+          Forward();
         }
 
         void Enable(bool On){
